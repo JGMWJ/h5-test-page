@@ -7,8 +7,11 @@
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/mui/3.7.1/css/mui.min.css" rel="stylesheet"/>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mui/3.7.1/js/mui.min.js">
-    <script type="text/javascript" src="https://gitcode.com/dcloud/uni-app/tree/uni-app-vue2-dev/dist/uni.webview.1.5.8.js"></script>
     </script>
+    
+    <!-- ✅ 官方方式：引入 uni 的 WebView SDK（可选，但推荐） -->
+    <!-- 注意：如果 App 端已经自动注入，这个脚本可以不加 -->
+    <script type="text/javascript" src="https://gitcode.com/dcloud/uni-app/tree/uni-app-vue2-dev/dist/uni.webview.1.5.8.js"></script>
     
     <style>
         /* ... 样式保持不变 ... */
@@ -55,6 +58,26 @@
         .log-area::-webkit-scrollbar { width: 4px; }
         .log-area::-webkit-scrollbar-track { background: #1a1a2e; }
         .log-area::-webkit-scrollbar-thumb { background: #4A69FF; border-radius: 4px; }
+        
+        /* 消息发送状态 */
+        .msg-status {
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        .msg-status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .msg-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .msg-status.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
@@ -93,9 +116,12 @@
             </div>
             <div class="btn-group">
                 <button class="btn-secondary" onclick="window.history.back()">⬅️ 浏览器返回</button>
-                <button class="btn-warning" onclick="mockAppBack()">📱 模拟App返回 (postMessage)</button>
+                <button class="btn-warning" onclick="mockAppBack()">📱 模拟App返回</button>
                 <button class="btn-outline" onclick="setFromAutoLogin()">🔑 设置 AutoLogin</button>
                 <button class="btn-outline" onclick="clearFromAutoLogin()">🗑️ 清除 AutoLogin</button>
+            </div>
+            <div id="msgStatus" class="msg-status pending" style="display:none;">
+                等待发送消息...
             </div>
         </div>
 
@@ -121,32 +147,47 @@
         </div>
     </div>
 
-    <script>
+    <script type="text/javascript">
         // ================================================================
-        // 1. uni 对象 - 真实通信，不模拟
+        // 官方标准方式：等待 UniAppJSBridgeReady 事件
         // ================================================================
-        // 注意：window.uni 由 uni-app 环境注入，这里只是定义占位
-        // 实际在 App 中，window.uni 已经存在
-        if (typeof window.uni === 'undefined') {
-            // 非 App 环境，创建一个占位对象用于测试
-            window.uni = {
-                postMessage: function(options) {
-                    console.log('[H5] uni.postMessage 调用:', options);
-                    var msg = options.data || {};
-                    var displayDiv = document.getElementById('messageDisplay');
-                    displayDiv.innerHTML = '<span style="color:#4A69FF;">📤 发送至App:</span>\n' + JSON.stringify(msg, null, 2);
-                    addLog('📤 发送消息至App: ' + JSON.stringify(msg), 'info');
-                },
-                navigateBack: function(options) {
-                    console.log('[H5] uni.navigateBack 调用:', options);
-                    addLog('📱 uni.navigateBack 被调用', 'info');
-                    return true;
-                }
-            };
+        document.addEventListener('UniAppJSBridgeReady', function() {
+            console.log('[Bridge] ✅ UniAppJSBridgeReady 触发，uni 对象已就绪');
+            addLog('✅ UniAppJSBridgeReady 事件触发', 'success');
+            
+            // 获取当前环境
+            if (typeof uni !== 'undefined' && uni.getEnv) {
+                uni.getEnv(function(res) {
+                    console.log('[Bridge] 当前环境:', JSON.stringify(res));
+                    addLog('📊 环境信息: ' + JSON.stringify(res), 'info');
+                });
+            }
+            
+            // 标记 uni 已就绪
+            window.__uniReady = true;
+            updateUI();
+        });
+
+        // ================================================================
+        // 如果 uni 已经存在（App 自动注入），直接标记就绪
+        // ================================================================
+        if (typeof window.uni !== 'undefined') {
+            console.log('[Bridge] ✅ uni 对象已存在（App 自动注入）');
+            window.__uniReady = true;
+            
+            // 如果 uni.getEnv 可用，获取环境信息
+            if (uni.getEnv) {
+                uni.getEnv(function(res) {
+                    console.log('[Bridge] 当前环境:', JSON.stringify(res));
+                    addLog('📊 环境信息: ' + JSON.stringify(res), 'info');
+                });
+            }
+        } else {
+            console.log('[Bridge] ⏳ 等待 uni 对象注入...');
         }
 
         // ================================================================
-        // 2. 工具函数
+        // 工具函数
         // ================================================================
         function addLog(message, type) {
             type = type || 'info';
@@ -162,16 +203,15 @@
             document.getElementById('logCount').textContent = logArea.children.length;
         }
 
-        function showAlert(title, message) {
-            if (window.plus) {
-                plus.nativeUI.alert(message, null, title);
-            } else {
-                alert(title + '\n\n' + message);
-            }
+        function showMsgStatus(message, type) {
+            var el = document.getElementById('msgStatus');
+            el.style.display = 'block';
+            el.textContent = message;
+            el.className = 'msg-status ' + type;
         }
 
         // ================================================================
-        // 3. Common.js 核心逻辑
+        // Common.js 核心逻辑
         // ================================================================
         function isEmbeddedAppWebview() {
             try {
@@ -213,73 +253,50 @@
         }
 
         // ================================================================
-        // 4. App 提供的方法（由 App 端注入）
-        // ================================================================
-        // 这些方法由 App 端通过 evalJS 注入
-        // 如果 App 端没有注入，则使用默认实现
-        if (typeof window.__ydyAppBack === 'undefined') {
-            window.__ydyAppBack = function() {
-                addLog('📞 __ydyAppBack 被调用（默认实现）', 'info');
-                // 通过 uni.postMessage 通知 App
-                if (window.uni && typeof window.uni.postMessage === 'function') {
-                    var payload = {
-                        type: 'appBack',
-                        action: 'navigateBack',
-                        shouldClose: shouldCloseWebviewOnBack(),
-                        canBack: canH5GoBack(),
-                        route: getHashRoute()
-                    };
-                    window.uni.postMessage({ data: payload });
-                    return true;
-                }
-                return false;
-            };
-        }
-
-        if (typeof window.__ydyNotifyBackState === 'undefined') {
-            window.__ydyNotifyBackState = function() {
-                var canBack = canH5GoBack();
-                addLog('📞 __ydyNotifyBackState 被调用，canBack=' + canBack, 'info');
-                if (window.uni && typeof window.uni.postMessage === 'function') {
-                    var payload = {
-                        type: 'h5CanBack',
-                        canBack: canBack,
-                        shouldClose: shouldCloseWebviewOnBack(),
-                        route: getHashRoute()
-                    };
-                    window.uni.postMessage({ data: payload });
-                }
-                updateUI();
-            };
-        }
-
-        // ================================================================
-        // 5. 核心方法
+        // ✅ 官方标准方式：mockAppBack
         // ================================================================
         function mockAppBack() {
             addLog('🖱️ 用户点击 "模拟App返回"', 'warn');
+            showMsgStatus('正在发送消息...', 'pending');
             
-            // 调用 App 提供的方法
-            if (typeof window.__ydyAppBack === 'function') {
-                window.__ydyAppBack();
-            } else {
-                // 降级：直接通过 uni.postMessage 发送
-                if (window.uni && typeof window.uni.postMessage === 'function') {
-                    var payload = {
-                        type: 'appBack',
-                        action: 'navigateBack',
-                        shouldClose: shouldCloseWebviewOnBack(),
-                        canBack: canH5GoBack(),
-                        route: getHashRoute()
-                    };
-                    window.uni.postMessage({ data: payload });
-                    addLog('📤 发送 appBack 消息至App: ' + JSON.stringify(payload), 'info');
-                } else {
-                    addLog('❌ uni.postMessage 不可用', 'error');
-                }
+            // 确保 uni 对象可用
+            if (typeof window.uni === 'undefined') {
+                addLog('❌ uni 对象不可用，请等待 UniAppJSBridgeReady', 'error');
+                showMsgStatus('❌ uni 对象不可用', 'error');
+                return;
+            }
+            
+            // 构造消息数据（官方标准格式）
+            var payload = {
+                type: 'appBack',
+                action: 'navigateBack',
+                shouldClose: shouldCloseWebviewOnBack(),
+                canBack: canH5GoBack(),
+                route: getHashRoute()
+            };
+            
+            try {
+                // ✅ 官方标准方式：调用 uni.postMessage
+                uni.postMessage({
+                    data: payload
+                });
+                
+                addLog('📤 发送 appBack 消息至App: ' + JSON.stringify(payload), 'info');
+                showMsgStatus('✅ 消息已发送: ' + payload.type, 'success');
+                
+                // 显示在消息框中
+                var displayDiv = document.getElementById('messageDisplay');
+                displayDiv.innerHTML = '<span style="color:#4A69FF;">📤 发送至App:</span>\n' + JSON.stringify(payload, null, 2);
+                
+            } catch (e) {
+                addLog('❌ 发送失败: ' + e.message, 'error');
+                showMsgStatus('❌ 发送失败: ' + e.message, 'error');
             }
         }
 
+        // ================================================================
+        // 路由导航
+        // ================================================================
         function navigateTo(route) {
             window.location.hash = route;
             addLog('🔄 导航到: ' + route, 'info');
@@ -290,7 +307,6 @@
                 sessionStorage.setItem('fromAutoLogin', '1');
                 addLog('🔑 已设置 sessionStorage.fromAutoLogin=1', 'success');
                 updateUI();
-                showAlert('设置成功', 'fromAutoLogin 已设置为 1');
             } catch (e) {
                 addLog('❌ 设置失败: ' + e.message, 'error');
             }
@@ -301,14 +317,13 @@
                 sessionStorage.removeItem('fromAutoLogin');
                 addLog('🗑️ 已清除 sessionStorage.fromAutoLogin', 'info');
                 updateUI();
-                showAlert('清除成功', 'fromAutoLogin 已清除');
             } catch (e) {
                 addLog('❌ 清除失败: ' + e.message, 'error');
             }
         }
 
         // ================================================================
-        // 6. UI 更新
+        // UI 更新
         // ================================================================
         function updateUI() {
             var route = getHashRoute();
@@ -351,74 +366,19 @@
         }
 
         // ================================================================
-        // 7. __embeddedWebviewGoBack - 供 App 调用
+        // __embeddedWebviewGoBack - 供 App 调用
         // ================================================================
         window.__embeddedWebviewGoBack = function() {
             addLog('🔄 App 调用 __embeddedWebviewGoBack', 'info');
-            
-            // 通过 uni.postMessage 通知 App
-            if (typeof window.uni !== 'undefined' && typeof window.uni.postMessage === 'function') {
-                var shouldClose = shouldCloseWebviewOnBack();
-                var canBack = canH5GoBack();
-                var route = getHashRoute();
-                
-                var payload = {
-                    type: 'appBack',
-                    action: 'navigateBack',
-                    shouldClose: shouldClose,
-                    canBack: canBack,
-                    route: route
-                };
-                
-                try {
-                    window.uni.postMessage({ data: payload });
-                    addLog('📤 通过 uni.postMessage 发送返回请求: ' + JSON.stringify(payload), 'info');
-                    
-                    if (shouldClose) {
-                        addLog('📱 应由 App 关闭 Webview', 'warn');
-                        return true;
-                    }
-                    
-                    if (canBack) {
-                        addLog('⬅️ 执行 window.history.back()', 'info');
-                        window.history.back();
-                        return true;
-                    }
-                    
-                    return false;
-                } catch (e) {
-                    addLog('❌ 发送消息失败: ' + e.message, 'error');
-                }
-            }
-            
-            // 降级方案
-            if (shouldCloseWebviewOnBack()) {
-                addLog('📱 应关闭Webview（降级）', 'warn');
-                try {
-                    if (window.uni && typeof window.uni.navigateBack === 'function') {
-                        window.uni.navigateBack({ delta: 1 });
-                        return true;
-                    }
-                } catch (e) {
-                    addLog('❌ 降级失败: ' + e.message, 'error');
-                }
-                return false;
-            }
-            
-            if (canH5GoBack()) {
-                addLog('⬅️ 执行 window.history.back()（降级）', 'info');
-                window.history.back();
-                return true;
-            }
-            
-            addLog('⚠️ 无操作', 'warn');
-            return false;
+            mockAppBack();
+            return true;
         };
 
         window.__embeddedWebviewCanBack = canH5GoBack;
+        window.__ydyAppBack = mockAppBack;
 
         // ================================================================
-        // 8. 初始化
+        // 初始化
         // ================================================================
         function init() {
             addLog('🚀 开始初始化...', 'info');
@@ -438,41 +398,18 @@
                 addLog('🌐 当前为普通浏览器模式 (可添加 ?embedded=true 激活)', 'info');
             }
             
+            // 监听路由变化
             var notifyBackState = function() {
                 var route = getHashRoute();
                 addLog('🔄 路由变化: ' + route, 'info');
-                if (typeof window.__ydyNotifyBackState === 'function') {
-                    window.__ydyNotifyBackState();
-                } else {
-                    var payload = {
-                        type: 'h5CanBack',
-                        canBack: canH5GoBack(),
-                        shouldClose: shouldCloseWebviewOnBack(),
-                        route: route
-                    };
-                    try {
-                        if (window.uni && typeof window.uni.postMessage === 'function') {
-                            window.uni.postMessage({ data: payload });
-                            addLog('📨 发送状态至App: ' + JSON.stringify(payload), 'info');
-                        }
-                    } catch (e) {
-                        addLog('❌ 发送失败: ' + e.message, 'error');
-                    }
-                }
                 updateUI();
             };
             
             window.addEventListener('hashchange', notifyBackState);
             window.addEventListener('popstate', notifyBackState);
             
-            document.addEventListener('UniAppJSBridgeReady', function() {
-                addLog('⚡ 触发了 UniAppJSBridgeReady 事件', 'success');
-                notifyBackState();
-            });
-            
-            setTimeout(notifyBackState, 200);
+            setTimeout(updateUI, 200);
             addLog('✅ 初始化完成!', 'success');
-            updateUI();
             
             window.__test = {
                 isEmbedded: isEmbeddedAppWebview,
@@ -480,7 +417,6 @@
                 canBack: canH5GoBack,
                 shouldClose: shouldCloseWebviewOnBack,
                 goBack: window.__embeddedWebviewGoBack,
-                notify: notifyBackState,
                 session: sessionStorage
             };
             console.log('🔧 调试对象: window.__test', window.__test);
