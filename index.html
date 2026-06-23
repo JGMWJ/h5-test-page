@@ -9,12 +9,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mui/3.7.1/js/mui.min.js">
     </script>
     
-    <!-- ✅ 官方方式：引入 uni 的 WebView SDK（可选，但推荐） -->
-    <!-- 注意：如果 App 端已经自动注入，这个脚本可以不加 -->
-    <script type="text/javascript" src="https://gitcode.com/dcloud/uni-app/tree/uni-app-vue2-dev/dist/uni.webview.1.5.8.js"></script>
-    
     <style>
-        /* ... 样式保持不变 ... */
+        /* ... 样式代码保持不变 ... */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { padding-top: 60px; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
         .top-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: linear-gradient(135deg, #4A69FF 0%, #6a8cff 100%); color: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(74, 105, 255, 0.3); }
@@ -58,26 +54,10 @@
         .log-area::-webkit-scrollbar { width: 4px; }
         .log-area::-webkit-scrollbar-track { background: #1a1a2e; }
         .log-area::-webkit-scrollbar-thumb { background: #4A69FF; border-radius: 4px; }
-        
-        /* 消息发送状态 */
-        .msg-status {
-            padding: 8px 12px;
-            border-radius: 6px;
-            margin-top: 8px;
-            font-size: 13px;
-        }
-        .msg-status.success {
-            background: #d4edda;
-            color: #155724;
-        }
-        .msg-status.error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        .msg-status.pending {
-            background: #fff3cd;
-            color: #856404;
-        }
+        .msg-status { padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-size: 13px; }
+        .msg-status.success { background: #d4edda; color: #155724; }
+        .msg-status.error { background: #f8d7da; color: #721c24; }
+        .msg-status.pending { background: #fff3cd; color: #856404; }
     </style>
 </head>
 <body>
@@ -120,9 +100,7 @@
                 <button class="btn-outline" onclick="setFromAutoLogin()">🔑 设置 AutoLogin</button>
                 <button class="btn-outline" onclick="clearFromAutoLogin()">🗑️ 清除 AutoLogin</button>
             </div>
-            <div id="msgStatus" class="msg-status pending" style="display:none;">
-                等待发送消息...
-            </div>
+            <div id="msgStatus" class="msg-status pending" style="display:none;">等待发送消息...</div>
         </div>
 
         <div class="card">
@@ -149,41 +127,94 @@
 
     <script type="text/javascript">
         // ================================================================
-        // 官方标准方式：等待 UniAppJSBridgeReady 事件
+        // ✅ 关键：等待 UniAppJSBridgeReady 事件
         // ================================================================
+        var uniReady = false;
+        var pendingMessages = [];
+
+        // 存储待发送的消息
+        function sendMessageWhenReady(payload) {
+            if (uniReady && typeof window.uni !== 'undefined') {
+                // uni 已就绪，直接发送
+                doSendMessage(payload);
+            } else {
+                // 暂存消息，等待就绪后发送
+                pendingMessages.push(payload);
+                console.log('[Bridge] ⏳ uni 未就绪，消息已暂存');
+                addLog('⏳ uni 未就绪，消息已暂存', 'warn');
+            }
+        }
+
+        // 实际发送消息
+        function doSendMessage(payload) {
+            try {
+                if (typeof window.uni === 'undefined') {
+                    console.error('[Bridge] ❌ uni 对象仍然不可用');
+                    addLog('❌ uni 对象不可用', 'error');
+                    return false;
+                }
+                
+                console.log('[Bridge] 📤 发送消息:', payload);
+                window.uni.postMessage({
+                    data: payload
+                });
+                
+                addLog('📤 发送消息至App: ' + JSON.stringify(payload), 'info');
+                
+                // 显示在消息框中
+                var displayDiv = document.getElementById('messageDisplay');
+                displayDiv.innerHTML = '<span style="color:#4A69FF;">📤 发送至App:</span>\n' + JSON.stringify(payload, null, 2);
+                
+                return true;
+            } catch (e) {
+                console.error('[Bridge] ❌ 发送失败:', e);
+                addLog('❌ 发送失败: ' + e.message, 'error');
+                return false;
+            }
+        }
+
+        // ✅ 监听 UniAppJSBridgeReady 事件
         document.addEventListener('UniAppJSBridgeReady', function() {
-            console.log('[Bridge] ✅ UniAppJSBridgeReady 触发，uni 对象已就绪');
-            addLog('✅ UniAppJSBridgeReady 事件触发', 'success');
+            console.log('[Bridge] ✅ UniAppJSBridgeReady 触发');
+            uniReady = true;
             
-            // 获取当前环境
-            if (typeof uni !== 'undefined' && uni.getEnv) {
-                uni.getEnv(function(res) {
+            // 获取环境信息
+            if (typeof window.uni !== 'undefined' && window.uni.getEnv) {
+                window.uni.getEnv(function(res) {
                     console.log('[Bridge] 当前环境:', JSON.stringify(res));
-                    addLog('📊 环境信息: ' + JSON.stringify(res), 'info');
+                    addLog('📊 环境: ' + JSON.stringify(res), 'info');
                 });
             }
             
-            // 标记 uni 已就绪
-            window.__uniReady = true;
+            addLog('✅ uni 对象已就绪', 'success');
+            
+            // 发送所有暂存的消息
+            if (pendingMessages.length > 0) {
+                console.log('[Bridge] 📤 发送暂存消息:', pendingMessages.length);
+                pendingMessages.forEach(function(msg) {
+                    doSendMessage(msg);
+                });
+                pendingMessages = [];
+            }
+            
             updateUI();
         });
 
-        // ================================================================
-        // 如果 uni 已经存在（App 自动注入），直接标记就绪
-        // ================================================================
+        // ✅ 如果 uni 已经存在（App 自动注入），直接标记就绪
         if (typeof window.uni !== 'undefined') {
-            console.log('[Bridge] ✅ uni 对象已存在（App 自动注入）');
-            window.__uniReady = true;
+            console.log('[Bridge] ✅ uni 已存在（App 自动注入）');
+            uniReady = true;
+            addLog('✅ uni 已存在（App 自动注入）', 'success');
             
-            // 如果 uni.getEnv 可用，获取环境信息
-            if (uni.getEnv) {
-                uni.getEnv(function(res) {
+            if (window.uni.getEnv) {
+                window.uni.getEnv(function(res) {
                     console.log('[Bridge] 当前环境:', JSON.stringify(res));
-                    addLog('📊 环境信息: ' + JSON.stringify(res), 'info');
+                    addLog('📊 环境: ' + JSON.stringify(res), 'info');
                 });
             }
         } else {
-            console.log('[Bridge] ⏳ 等待 uni 对象注入...');
+            console.log('[Bridge] ⏳ 等待 UniAppJSBridgeReady...');
+            addLog('⏳ 等待 uni 对象注入...', 'warn');
         }
 
         // ================================================================
@@ -253,20 +284,12 @@
         }
 
         // ================================================================
-        // ✅ 官方标准方式：mockAppBack
+        // ✅ mockAppBack - 使用 sendMessageWhenReady
         // ================================================================
         function mockAppBack() {
             addLog('🖱️ 用户点击 "模拟App返回"', 'warn');
             showMsgStatus('正在发送消息...', 'pending');
             
-            // 确保 uni 对象可用
-            if (typeof window.uni === 'undefined') {
-                addLog('❌ uni 对象不可用，请等待 UniAppJSBridgeReady', 'error');
-                showMsgStatus('❌ uni 对象不可用', 'error');
-                return;
-            }
-            
-            // 构造消息数据（官方标准格式）
             var payload = {
                 type: 'appBack',
                 action: 'navigateBack',
@@ -275,28 +298,10 @@
                 route: getHashRoute()
             };
             
-            try {
-                // ✅ 官方标准方式：调用 uni.postMessage
-                uni.postMessage({
-                    data: payload
-                });
-                
-                addLog('📤 发送 appBack 消息至App: ' + JSON.stringify(payload), 'info');
-                showMsgStatus('✅ 消息已发送: ' + payload.type, 'success');
-                
-                // 显示在消息框中
-                var displayDiv = document.getElementById('messageDisplay');
-                displayDiv.innerHTML = '<span style="color:#4A69FF;">📤 发送至App:</span>\n' + JSON.stringify(payload, null, 2);
-                
-            } catch (e) {
-                addLog('❌ 发送失败: ' + e.message, 'error');
-                showMsgStatus('❌ 发送失败: ' + e.message, 'error');
-            }
+            // ✅ 使用安全发送方法
+            sendMessageWhenReady(payload);
         }
 
-        // ================================================================
-        // 路由导航
-        // ================================================================
         function navigateTo(route) {
             window.location.hash = route;
             addLog('🔄 导航到: ' + route, 'info');
@@ -366,7 +371,7 @@
         }
 
         // ================================================================
-        // __embeddedWebviewGoBack - 供 App 调用
+        // 暴露全局方法
         // ================================================================
         window.__embeddedWebviewGoBack = function() {
             addLog('🔄 App 调用 __embeddedWebviewGoBack', 'info');
